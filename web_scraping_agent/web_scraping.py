@@ -1,6 +1,3 @@
-import os
-from pydantic_ai.models.ollama import OllamaModel
-#from dotenv import load_dotenv
 import datetime
 import pandas as pd
 from httpx import Client
@@ -9,13 +6,12 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.exceptions import UnexpectedModelBehavior
+from load_models import OLLAMA_MODEL
+from dotenv import load_dotenv
 import time
 
 # Load environment variables from .env file
-#load_dotenv()
-
-# Initialize Ollama model
-OLLAMA_MODEL = OllamaModel('llama3.3:70b')
+load_dotenv()
 
 class Product(BaseModel):
     brand_name: str = Field(title='Brand Name', description='The brand name of the product')
@@ -26,7 +22,6 @@ class Product(BaseModel):
 class Results(BaseModel):
     dataset: list[Product] = Field(title='Dataset', description='The list of products')
 
-# Define the web scraping agent
 web_scraping_agent = Agent(
     name='Web Scraping Agent',
     model=OLLAMA_MODEL,
@@ -34,7 +29,7 @@ web_scraping_agent = Agent(
         Your task is to convert a data string into a List of dictionaries.
                    
         Step 1. Fetch the HTML text from the given URL using the fetch_html_text() function.
-        Step 2. Take the output from Step 1 and clean it up for the final output.
+        Step 2. Takes the output from Step 1 and clean it up for the final output.
     """),
     retries=2,
     result_type=Results,
@@ -47,13 +42,13 @@ web_scraping_agent = Agent(
 @web_scraping_agent.tool_plain(retries=1)
 def fetch_html_text(url: str) -> str:
     """
-    Fetches the HTML text from the given URL.
+    Fetches the HTML text from the given URL
 
     args:
-        url (str): The URL to fetch the HTML text from.
+        url (str): The URL to fetch the HTML text from
 
     returns:
-        str: The HTML text from the given URL.
+        str: The HTML text from the given URL
     """
     print('Calling URL:', url)
     headers = {
@@ -65,6 +60,9 @@ def fetch_html_text(url: str) -> str:
         if response.status_code != 200:
             raise UnexpectedModelBehavior(f'Failed to fetch the HTML text from the URL: {url}. Status code: {response.status_code}')
         soup = BeautifulSoup(response.text, 'html.parser')
+        with open('soup.txt', 'w', encoding='utf-8') as file:
+            file.write(soup.get_text())
+        print('Soup file saved')
         return soup.get_text().replace('\n', ' ').replace('\r', ' ')
 
 @web_scraping_agent.result_validator
@@ -85,21 +83,21 @@ def main() -> None:
         try:
             response = web_scraping_agent.run_sync(prompt)
             if response.data is None:
-                print('No data returned from the model.')
+                # raise UnexpectedModelBehavior('No data returned from the model')
                 return None
-
             print('-' * 50)
             print('Input_tokens:', response.usage().request_tokens)
             print('Output_tokens:', response.usage().response_tokens)
             print('Total_tokens:', response.usage().total_tokens)
 
-            lst = [item.model_dump() for item in response.data.dataset]
+            lst = []
+            for item in response.data.dataset:
+                lst.append(item.model_dump())
 
             timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
             df = pd.DataFrame(lst)
-            csv_filename = f'product_listings_{timestamp}.csv'
-            df.to_csv(csv_filename, index=False)
-            print(f'CSV file saved as {csv_filename}')
+            df.to_csv(f'product_listings_{timestamp}.csv', index=False)
+            print(f'CSV file saved as product_listings_{timestamp}.csv')
             break  # Exit the retry loop if successful
 
         except ConnectionError as e:
@@ -112,7 +110,7 @@ def main() -> None:
                 break
 
         except UnexpectedModelBehavior as e:
-            print(f'Unexpected model behavior: {e}')
+            print(e)
             break
 
 if __name__ == '__main__':
